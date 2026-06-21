@@ -1,0 +1,48 @@
+{
+  "hermes_command": {
+    "description": "Hermes CLI 命令路径",
+    "type": "string",
+    "default": "hermes",
+    "hint": "例如: hermes 或 /usr/local/bin/hermes"
+  },
+  "hermes_workdir": {
+    "description": "Hermes 工作目录",
+    "type": "string",
+    "default": "",
+    "hint": "留空则使用 Hermes 默认工作目录。例如: D:/AI/workspace"
+  },
+  "hermes_model": {
+    "description": "创建新会话时使用的默认模型",
+    "type": "string",
+    "default": "",
+    "hint": "留空则使用 Hermes 默认模型。例如: deepseek/deepseek-v4-flash"
+  },
+  "max_timeout": {
+    "description": "Hermes 命令最大超时时间（秒）",
+    "type": "int",
+    "default": 120
+  },
+  "quick_prefix": {
+    "description": "快捷发送前缀",
+    "type": "string",
+    "default": ">",
+    "hint": "前缀后需加空格，如「> 消息内容」发送到当前会话"
+  },
+  "output_mode": {
+    "description": "输出模式：simple（只返回最终回复） / verbose（包含中间思考）",
+    "type": "string",
+    "default": "simple",
+    "options": ["simple", "verbose"]
+  },
+  "auto_create_session": {
+    "description": "收到快捷前缀消息时，如果没有当前会话则自动创建新会话",
+    "type": "bool",
+    "default": true
+  },
+  "default_system_prompt": {
+    "description": "创建新会话时的默认系统提示词（覆盖 Hermes 内置 persona）",
+    "type": "string",
+    "default": "",
+    "hint": "留空则使用 Hermes 默认 persona"
+  }
+}
