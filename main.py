@@ -14,7 +14,19 @@ from .command_handlers import CommandHandlers
 from .state_manager import StateManager
 from .notification_manager import NotificationManager
 from .pending_manager import PendingManager
+from .risk_checker import classify_risk, get_risk_summary
 from . import formatters
+
+
+def _approval_failed_msg(reason: str) -> str:
+    """审批失败/超时的统一提示"""
+    if reason == "timeout":
+        return "⏱️ 操作超时：未收到审批。请使用 `/hermes a` 批准或 `/hermes deny` 拒绝。"
+    elif reason == "notification_failed":
+        return "❌ 操作失败：无法发送审批通知。请检查插件配置。"
+    elif reason == "cancelled":
+        return "⏹️ 操作已取消。"
+    return "⛔ 操作已被用户拒绝。"
 
 
 @register("astrbot_plugin_hermes_connector", "konodiodaaaaa1",
@@ -252,9 +264,10 @@ class HermesConnectorPlugin(Star):
             message(string): 要发送的消息内容
             session_idx(number): 会话序号（从 1 开始），使用 hermes_list_sessions 查看
         """
-        # 请求审批（如果配置开启）
-        require_approval = self.config.get("require_approval", True)
-        if require_approval:
+        # 智能审批
+        approval_mode = self.config.get("require_approval", "smart")
+        if approval_mode == "all":
+            # 全部审批：每次都问
             window_id = event.get_sender_id()
             approved, reason = await self.pending_mgr.require_approval(
                 window_id, "hermes_send_message",
@@ -263,13 +276,24 @@ class HermesConnectorPlugin(Star):
                 timeout=self.config.get("approval_timeout", 60)
             )
             if not approved:
-                if reason == "timeout":
-                    yield "操作超时：60秒内未收到用户审批。请使用 `/hermes a` 批准或 `/hermes deny` 拒绝。"
-                elif reason == "notification_failed":
-                    yield "操作失败：无法发送审批通知。请检查插件配置。"
-                else:
-                    yield "操作已被用户拒绝。"
+                yield _approval_failed_msg(reason)
                 return
+        elif approval_mode == "smart":
+            # 智能审批：AstrBot 判断风险，低风险自动放行
+            risk = classify_risk(message)
+            if risk == "high":
+                window_id = event.get_sender_id()
+                risk_summary = get_risk_summary(message)
+                approved, reason = await self.pending_mgr.require_approval(
+                    window_id, "hermes_send_message",
+                    {"risk": risk_summary, "message": message[:50], "session_idx": session_idx},
+                    lambda text: event.send(MessageChain(chain=[Plain(text)])),
+                    timeout=self.config.get("approval_timeout", 60)
+                )
+                if not approved:
+                    yield _approval_failed_msg(reason)
+                    return
+            # medium 和 low 都自动放行
         
         await self._refresh_sessions()
         session = self.state_mgr.get_session_by_idx(session_idx)
@@ -281,7 +305,15 @@ class HermesConnectorPlugin(Star):
         try:
             result = await chat(message, session_id=session["id"], timeout=120, yolo=yolo_mode)
             self.state_mgr.set_current_session(event.get_sender_id(), result["session_id"], session_idx)
-            yield formatters.format_response(result["session_id"], result["response"])
+            
+            # 自动汇报摘要
+            response = result["response"]
+            if self.config.get("auto_report", True):
+                max_len = self.config.get("auto_report_max_length", 500)
+                if len(response) > max_len:
+                    response = response[:max_len] + f"\n\n...（回复过长，截断至 {max_len} 字符。可用 /hermes msg 查看完整消息）"
+            
+            yield formatters.format_response(result["session_id"], response)
         except HermesCliError as e:
             yield str(e)
     
@@ -292,29 +324,37 @@ class HermesConnectorPlugin(Star):
         Args:
             prompt(string): 会话的初始任务描述或提示词
         """
-        # 请求审批
-        window_id = event.get_sender_id()
-        approved, reason = await self.pending_mgr.require_approval(
-            window_id, "hermes_create_session",
-            {"prompt": prompt[:50]},
-            lambda text: event.send(MessageChain(chain=[Plain(text)])),
-            timeout=60
-        )
-        if not approved:
-            if reason == "timeout":
-                yield "操作超时：60秒内未收到用户审批。请使用 `/hermes a` 批准或 `/hermes deny` 拒绝。"
-            elif reason == "notification_failed":
-                yield "操作失败：无法发送审批通知。"
-            else:
-                yield "操作已被用户拒绝。"
-            return
+        # 智能审批：创建会话属于中风险（消耗配额），smart 模式下也需要审批
+        approval_mode = self.config.get("require_approval", "smart")
+        if approval_mode in ("all", "smart"):
+            window_id = event.get_sender_id()
+            risk = classify_risk(prompt)
+            if approval_mode == "all" or risk == "high":
+                risk_summary = get_risk_summary(prompt) if risk == "high" else "🟡 创建新会话"
+                approved, reason = await self.pending_mgr.require_approval(
+                    window_id, "hermes_create_session",
+                    {"risk": risk_summary, "prompt": prompt[:50]},
+                    lambda text: event.send(MessageChain(chain=[Plain(text)])),
+                    timeout=self.config.get("approval_timeout", 60)
+                )
+                if not approved:
+                    yield _approval_failed_msg(reason)
+                    return
         
         yolo_mode = self.config.get("hermes_approval_mode", "normal") == "yolo"
         try:
             result = await chat(prompt, timeout=120, yolo=yolo_mode)
             self.state_mgr.set_current_session(event.get_sender_id(), result["session_id"])
             await self._refresh_sessions()
-            yield formatters.format_response(result["session_id"], result["response"], is_new=True)
+            
+            # 自动汇报摘要
+            response = result["response"]
+            if self.config.get("auto_report", True):
+                max_len = self.config.get("auto_report_max_length", 500)
+                if len(response) > max_len:
+                    response = response[:max_len] + f"\n\n...（回复过长，截断至 {max_len} 字符。可用 /hermes msg 查看完整消息）"
+            
+            yield formatters.format_response(result["session_id"], response, is_new=True)
         except HermesCliError as e:
             yield str(e)
     
