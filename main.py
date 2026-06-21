@@ -9,7 +9,7 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.message_components import Plain, Poke
 
-from .hermes_cli_client import chat, list_sessions, check_health, get_session_detail, get_session_messages, HermesCliError
+from .hermes_cli_client import chat, list_sessions, check_health, get_session_detail, get_session_messages, delete_session, prune_sessions, rename_session_cmd, HermesCliError
 from .command_handlers import CommandHandlers
 from .state_manager import StateManager
 from .notification_manager import NotificationManager
@@ -165,6 +165,16 @@ class HermesConnectorPlugin(Star):
     @hermes.command("abort", alias={"stop"})
     async def cmd_abort(self, event: AstrMessageEvent, session: str = ""):
         await self.cmd_handlers.cmd_abort(event, session or None)
+    
+    @hermes.command("delete", alias={"rm", "del"})
+    async def cmd_delete(self, event: AstrMessageEvent, session: str = ""):
+        """删除指定会话"""
+        await self.cmd_handlers.cmd_delete(event, session or None)
+    
+    @hermes.command("clean", alias={"prune", "cleanup"})
+    async def cmd_clean(self, event: AstrMessageEvent, days: str = ""):
+        """批量清理旧会话"""
+        await self.cmd_handlers.cmd_clean(event, days or None)
     
     # ── 审批指令 ─────────────────────────────────────
     
@@ -529,3 +539,57 @@ class HermesConnectorPlugin(Star):
             yield result
         else:
             yield "📭 没有待审批的请求。"
+    
+    @filter.llm_tool(name="hermes_delete_session")
+    async def tool_delete_session(self, event: AstrMessageEvent, session_idx: int):
+        """删除指定的 Hermes 会话。注意：此操作不可恢复！
+
+        Args:
+            session_idx(number): 要删除的会话序号（从 1 开始）
+        """
+        await self._refresh_sessions()
+        session = self.state_mgr.get_session_by_idx(session_idx)
+        if not session:
+            yield f"找不到序号 {session_idx} 的会话。"
+            return
+        
+        ok, msg = await delete_session(
+            session["id"],
+            binary=self.config.get("hermes_command", "hermes"),
+            force=True,
+        )
+        yield msg
+    
+    @filter.llm_tool(name="hermes_cleanup_sessions")
+    async def tool_cleanup_sessions(self, event: AstrMessageEvent, older_than_days: int = 90):
+        """批量清理旧的 Hermes 会话。删除指定天数之前的所有非活跃会话。
+
+        Args:
+            older_than_days(number): 删除超过多少天的旧会话（默认 90 天）
+        """
+        ok, msg = await prune_sessions(
+            older_than=older_than_days,
+            binary=self.config.get("hermes_command", "hermes"),
+            force=True,
+        )
+        yield msg
+    
+    @filter.llm_tool(name="hermes_rename_session")
+    async def tool_rename_session(self, event: AstrMessageEvent, new_title: str, session_idx: int = 1):
+        """重命名 Hermes 会话，方便后续识别。
+
+        Args:
+            new_title(string): 会话的新名称
+            session_idx(number): 会话序号（从 1 开始），默认为当前会话
+        """
+        await self._refresh_sessions()
+        session = self.state_mgr.get_session_by_idx(session_idx)
+        if not session:
+            yield f"找不到序号 {session_idx} 的会话。"
+            return
+        
+        ok, msg = await rename_session_cmd(
+            session["id"], new_title,
+            binary=self.config.get("hermes_command", "hermes"),
+        )
+        yield msg

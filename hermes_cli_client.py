@@ -329,3 +329,73 @@ async def switch_session(session_id: str, timeout: int = 15,
     """
     sessions = await list_sessions(timeout=timeout, binary=binary)
     return any(s["id"] == session_id for s in sessions)
+
+
+async def delete_session(session_id: str, *, timeout: int = 15,
+                          binary: str | None = None, force: bool = False) -> tuple[bool, str]:
+    """
+    删除一个 Hermes 会话。
+    
+    Returns:
+        (success, message)
+    """
+    try:
+        args = ["sessions", "delete"]
+        if force:
+            args.append("--yes")
+        args.append(session_id)
+        code, stdout, stderr = await _run_hermes(args, timeout=timeout, binary=binary)
+        if code == 0:
+            return True, f"已删除会话 {session_id[:16]}..."
+        error_msg = stderr.strip() or stdout.strip()
+        return False, f"删除失败: {error_msg[:200]}"
+    except HermesCliError as e:
+        return False, str(e)
+
+
+async def prune_sessions(*, older_than: int = 90, source: str | None = None,
+                          timeout: int = 30, binary: str | None = None,
+                          force: bool = False) -> tuple[bool, str]:
+    """
+    批量清理旧会话。
+    
+    Args:
+        older_than: 删除超过 N 天的会话（默认 90）
+        source: 只清理指定来源的会话
+        force: 跳过确认
+        
+    Returns:
+        (success, message)
+    """
+    try:
+        args = ["sessions", "prune", f"--older-than={older_than}"]
+        if source:
+            args.append(f"--source={source}")
+        if force:
+            args.append("--yes")
+        code, stdout, stderr = await _run_hermes(args, timeout=timeout, binary=binary)
+        if code == 0:
+            return True, stdout.strip() or f"已清理 {older_than} 天前的旧会话"
+        error_msg = stderr.strip() or stdout.strip()
+        return False, f"清理失败: {error_msg[:200]}"
+    except HermesCliError as e:
+        return False, str(e)
+
+
+async def rename_session_cmd(session_id: str, title: str, *,
+                              timeout: int = 15, binary: str | None = None) -> tuple[bool, str]:
+    """
+    重命名一个 Hermes 会话。
+    
+    Returns:
+        (success, message)
+    """
+    try:
+        args = ["sessions", "rename", session_id, title]
+        code, stdout, stderr = await _run_hermes(args, timeout=timeout, binary=binary)
+        if code == 0:
+            return True, f"已重命名会话 {session_id[:16]}... 为「{title}」"
+        error_msg = stderr.strip() or stdout.strip()
+        return False, f"重命名失败: {error_msg[:200]}"
+    except HermesCliError as e:
+        return False, str(e)

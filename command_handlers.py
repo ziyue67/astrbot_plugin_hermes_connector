@@ -12,7 +12,7 @@ from astrbot.api.message_components import Plain
 
 from .hermes_cli_client import (
     chat, list_sessions, check_health, get_session_detail,
-    get_session_messages, HermesCliError,
+    get_session_messages, delete_session, prune_sessions, HermesCliError,
 )
 from .formatters import (
     format_session_list, format_session_status, format_response,
@@ -386,6 +386,28 @@ class CommandHandlers:
     async def cmd_quick_send(self, event: AstrMessageEvent, text: str):
         """快捷发送（处理 > 前缀消息）"""
         await self.cmd_send(event, text)
+    
+    async def cmd_delete(self, event: AstrMessageEvent, arg: str | None = None):
+        """删除指定会话"""
+        resolved = await self._resolve_session(event, arg)
+        if not resolved:
+            await self.send_reply(event, "⚠️ 请提供要删除的会话序号或 ID。")
+            return
+        
+        session_id = resolved["session"]["id"]
+        ok, msg = await delete_session(session_id, binary=self._binary(), force=True)
+        await self.send_reply(event, msg)
+    
+    async def cmd_clean(self, event: AstrMessageEvent, arg: str | None = None):
+        """批量清理旧会话"""
+        days = 90
+        if arg:
+            try:
+                days = int(arg)
+            except ValueError:
+                pass
+        ok, msg = await prune_sessions(older_than=days, binary=self._binary(), force=True)
+        await self.send_reply(event, msg)
     
     # ── 审批方法 ─────────────────────────────────────
     
