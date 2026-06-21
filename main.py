@@ -202,22 +202,24 @@ class HermesConnectorPlugin(Star):
             message(string): 要发送的消息内容
             session_idx(number): 会话序号（从 1 开始），使用 hermes_list_sessions 查看
         """
-        # 请求审批
-        window_id = event.get_sender_id()
-        approved, reason = await self.pending_mgr.require_approval(
-            window_id, "hermes_send_message",
-            {"message": message[:50], "session_idx": session_idx},
-            lambda text: event.send(MessageChain(chain=[Plain(text)])),
-            timeout=60
-        )
-        if not approved:
-            if reason == "timeout":
-                yield "操作超时：60秒内未收到用户审批。请使用 `/hermes a` 批准或 `/hermes deny` 拒绝。"
-            elif reason == "notification_failed":
-                yield "操作失败：无法发送审批通知。请检查插件配置。"
-            else:
-                yield "操作已被用户拒绝。"
-            return
+        # 请求审批（如果配置开启）
+        require_approval = self.config.get("require_approval", True)
+        if require_approval:
+            window_id = event.get_sender_id()
+            approved, reason = await self.pending_mgr.require_approval(
+                window_id, "hermes_send_message",
+                {"message": message[:50], "session_idx": session_idx},
+                lambda text: event.send(MessageChain(chain=[Plain(text)])),
+                timeout=self.config.get("approval_timeout", 60)
+            )
+            if not approved:
+                if reason == "timeout":
+                    yield "操作超时：60秒内未收到用户审批。请使用 `/hermes a` 批准或 `/hermes deny` 拒绝。"
+                elif reason == "notification_failed":
+                    yield "操作失败：无法发送审批通知。请检查插件配置。"
+                else:
+                    yield "操作已被用户拒绝。"
+                return
         
         await self._refresh_sessions()
         session = self.state_mgr.get_session_by_idx(session_idx)
@@ -225,8 +227,9 @@ class HermesConnectorPlugin(Star):
             yield f"找不到序号 {session_idx} 的会话。请先调用 hermes_list_sessions 查看当前会话。"
             return
         
+        yolo_mode = self.config.get("hermes_approval_mode", "normal") == "yolo"
         try:
-            result = await chat(message, session_id=session["id"], timeout=120)
+            result = await chat(message, session_id=session["id"], timeout=120, yolo=yolo_mode)
             self.state_mgr.set_current_session(event.get_sender_id(), result["session_id"], session_idx)
             yield formatters.format_response(result["session_id"], result["response"])
         except HermesCliError as e:
@@ -256,8 +259,9 @@ class HermesConnectorPlugin(Star):
                 yield "操作已被用户拒绝。"
             return
         
+        yolo_mode = self.config.get("hermes_approval_mode", "normal") == "yolo"
         try:
-            result = await chat(prompt, timeout=120)
+            result = await chat(prompt, timeout=120, yolo=yolo_mode)
             self.state_mgr.set_current_session(event.get_sender_id(), result["session_id"])
             await self._refresh_sessions()
             yield formatters.format_response(result["session_id"], result["response"], is_new=True)

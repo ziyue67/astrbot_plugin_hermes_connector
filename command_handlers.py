@@ -49,6 +49,9 @@ class CommandHandlers:
     def _model(self):
         return self._get_config().get("hermes_model", "") or None
     
+    def _yolo(self):
+        return self._get_config().get("hermes_approval_mode", "normal") == "yolo"
+    
     async def _refresh_sessions(self):
         """刷新会话缓存"""
         try:
@@ -175,6 +178,7 @@ class CommandHandlers:
                 model=self._model(),
                 timeout=self._timeout(),
                 binary=self._binary(),
+                yolo=self._yolo(),
             )
             
             # 更新当前会话
@@ -212,6 +216,7 @@ class CommandHandlers:
                 model=self._model(),
                 timeout=self._timeout(),
                 binary=self._binary(),
+                yolo=self._yolo(),
             )
             
             window_id = event.get_sender_id()
@@ -240,6 +245,7 @@ class CommandHandlers:
                 model=self._model(),
                 timeout=self._timeout(),
                 binary=self._binary(),
+                yolo=self._yolo(),
             )
             
             # 更新状态
@@ -371,6 +377,7 @@ class CommandHandlers:
                 session_id=session_id,
                 timeout=30,
                 binary=self._binary(),
+                yolo=self._yolo(),
             )
             await self.send_reply(event, f"⏹️ 已中断会话 `{session_id[:16]}...`")
         except HermesCliError as e:

@@ -177,7 +177,7 @@ async def _run_hermes(args: list[str], timeout: int = 120,
 async def chat(message: str, *, session_id: str | None = None,
                workdir: str | None = None, model: str | None = None,
                timeout: int = 120, quiet: bool = True,
-               binary: str | None = None) -> dict:
+               binary: str | None = None, yolo: bool = False) -> dict:
     """
     向 Hermes 发送消息。
     
@@ -188,6 +188,8 @@ async def chat(message: str, *, session_id: str | None = None,
         model: 模型名称（仅新会话时有效）
         timeout: 超时秒数
         quiet: 是否使用安静模式
+        binary: Hermes CLI 路径
+        yolo: 是否启用 yolo 模式（跳过危险命令确认）
         
     Returns:
         {"session_id": str, "response": str, "is_new": bool}
@@ -200,6 +202,8 @@ async def chat(message: str, *, session_id: str | None = None,
         args.extend(["--resume", session_id])
     if model:
         args.extend(["-m", model])
+    if yolo:
+        args.append("--yolo")
     
     code, stdout, stderr = await _run_hermes(args, timeout=timeout, workdir=workdir, binary=binary)
     

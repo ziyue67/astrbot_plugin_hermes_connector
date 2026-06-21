@@ -56,5 +56,12 @@
     "type": "int",
     "default": 60,
     "hint": "超过此时间未审批则自动拒绝"
+  },
+  "hermes_approval_mode": {
+    "description": "Hermes CLI 审批模式。yolo=跳过所有危险命令确认，normal=默认（需确认），plan=规划模式（不执行）",
+    "type": "string",
+    "default": "normal",
+    "options": ["normal", "yolo"],
+    "hint": "yolo 模式会自动批准 Hermes 侧的敏感操作（文件写入、命令执行等），请谨慎使用"
   }
 }
