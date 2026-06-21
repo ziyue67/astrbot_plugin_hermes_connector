@@ -7,7 +7,7 @@ Hermes Connector AstrBot 插件入口
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, register
 from astrbot.api import AstrBotConfig, logger
-from astrbot.api.message_components import Plain
+from astrbot.api.message_components import Plain, Poke
 
 from .hermes_cli_client import chat, list_sessions, check_health, HermesCliError
 from .command_handlers import CommandHandlers
@@ -31,6 +31,7 @@ class HermesConnectorPlugin(Star):
         self.notification_mgr = NotificationManager(context, self.state_mgr)
         self.cmd_handlers = CommandHandlers(self)
         self.quick_prefix = self.config.get("quick_prefix", ">")
+        self.poke_approve = self.config.get("poke_approve", True)
         
         logger.info(f"Hermes Connector 已加载。快捷前缀: '{self.quick_prefix}'")
     
@@ -179,6 +180,55 @@ class HermesConnectorPlugin(Star):
                 )
         
         await self.cmd_handlers.cmd_quick_send(event, content)
+    
+    # ── 戳一戳审批（QQ NapCat）───────────────────
+    
+    def _is_poke_event(self, event: AstrMessageEvent) -> bool:
+        """检测是否为戳一戳机器人事件"""
+        try:
+            self_id = str(event.get_self_id() or "").strip()
+            raw_message = getattr(event.message_obj, "raw_message", {}) or {}
+            if not self_id:
+                self_id = str(raw_message.get("self_id", "")).strip()
+            
+            for comp in getattr(event.message_obj, "message", []) or []:
+                if isinstance(comp, Poke):
+                    candidates = []
+                    target_id = comp.target_id() if hasattr(comp, "target_id") else None
+                    for value in (target_id, getattr(comp, "id", None), getattr(comp, "qq", None)):
+                        if value is None:
+                            continue
+                        text = str(value).strip()
+                        if text:
+                            candidates.append(text)
+                    if self_id and self_id in candidates:
+                        return True
+            
+            subtype = str(raw_message.get("sub_type", "")).lower()
+            target_id = str(raw_message.get("target_id", "")).strip()
+            return subtype == "poke" and bool(self_id) and target_id == self_id
+        except Exception:
+            return False
+    
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=10)
+    async def poke_approve_handler(self, event: AstrMessageEvent):
+        """戳一戳机器人 → 自动批准所有待审批请求 (仅 QQ NapCat)"""
+        if not self.poke_approve:
+            return
+        
+        if not self._is_poke_event(event):
+            return
+        
+        window_id = event.get_sender_id()
+        items = self.pending_mgr.flatten_pending(window_id)
+        if not items:
+            return  # 无待审批，静默
+        
+        result = await self.pending_mgr.approve_all(window_id)
+        if result:
+            yield event.plain_result(f"[戳一戳审批] {result}")
+        
+        event.stop_event()
     
     # ═══════════════════════════════════════════════════
     #  LLM Function Calling 工具（自然语言触发）

@@ -51,6 +51,12 @@
     "default": true,
     "hint": "开启后，每次通过自然语言发送消息/创建会话需要用户确认"
   },
+  "poke_approve": {
+    "description": "戳一戳机器人自动审批全部待审批请求（仅 QQ NapCat）",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后在 QQ 戳一戳机器人自动批准所有待审批请求"
+  },
   "approval_timeout": {
     "description": "审批超时时间（秒）",
     "type": "int",

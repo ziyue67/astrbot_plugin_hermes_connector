@@ -83,6 +83,7 @@ _✨ 在 QQ/微信/Telegram 上远程操控 Hermes Agent ✨_
 | `output_mode` | 输出模式：`simple` / `verbose` | `simple` |
 | `auto_create_session` | 快捷发送时自动创建新会话 | `true` |
 | `require_approval` | LLM 工具操作需审批确认 | `true` |
+| `poke_approve` | 戳一戳机器人自动审批（仅 QQ NapCat） | `true` |
 | `approval_timeout` | 审批超时时间（秒） | `60` |
 | `hermes_approval_mode` | Hermes CLI 审批模式。`normal`=默认需确认，`yolo`=跳过危险操作确认 | `normal` |
 | `default_system_prompt` | 新会话默认系统提示词 | 空（使用 Hermes 默认） |
@@ -145,6 +146,9 @@ _✨ 在 QQ/微信/Telegram 上远程操控 Hermes Agent ✨_
 | `/hermes allow <序号>` | 批准指定序号 |
 | `/hermes deny` | 拒绝全部 |
 | `/hermes deny <序号>` | 拒绝指定序号 |
+| 戳一戳机器人 🤳 | 批准全部待审批（仅 QQ NapCat，需开启 `poke_approve`） |
+
+> 🤳 在 QQ 上戳一戳机器人 = 快捷批准所有待审批请求，摸鱼神器
 
 ## 🧠 自然语言（LLM 工具）
 
