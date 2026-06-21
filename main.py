@@ -29,6 +29,25 @@ def _approval_failed_msg(reason: str) -> str:
     return "⛔ 操作已被用户拒绝。"
 
 
+def _safe_window_id(event) -> str:
+    """从 event 安全获取窗口ID。兼容 AstrMessageEvent 和 ContextWrapper"""
+    if hasattr(event, 'unified_msg_origin'):
+        return event.unified_msg_origin
+    try:
+        return str(event.get_sender_id())
+    except AttributeError:
+        return "internal_agent"
+
+
+def _safe_set_session(state_mgr, event, session_id, idx=None):
+    """安全设置当前会话。兼容两种 event 类型"""
+    window_id = _safe_window_id(event)
+    if idx:
+        state_mgr.set_current_session(window_id, session_id, idx)
+    else:
+        state_mgr.set_current_session(window_id, session_id)
+
+
 @register("astrbot_plugin_hermes_connector", "konodiodaaaaa1",
           "连接 Hermes Agent，在聊天平台上远程操控 Hermes 会话，随时随地 Agent",
           "1.1.0")
@@ -187,9 +206,7 @@ class HermesConnectorPlugin(Star):
             await self._refresh_sessions()
             resolved = await self.cmd_handlers._resolve_session(event, str(idx))
             if resolved:
-                self.state_mgr.set_current_session(
-                    event.unified_msg_origin, resolved["session"]["id"], idx
-                )
+                _safe_set_session(self.state_mgr, event, resolved["session"]["id"], idx)
         
         await self.cmd_handlers.cmd_quick_send(event, content)
     
@@ -231,7 +248,7 @@ class HermesConnectorPlugin(Star):
         if not self._is_poke_event(event):
             return
         
-        window_id = event.unified_msg_origin
+        window_id = _safe_window_id(event)
         items = self.pending_mgr.flatten_pending(window_id)
         if not items:
             return  # 无待审批，静默
@@ -271,7 +288,7 @@ class HermesConnectorPlugin(Star):
             return
         if approval_mode == "all":
             # 全部审批：每次都问
-            window_id = event.unified_msg_origin
+            window_id = _safe_window_id(event)
             approved, reason = await self.pending_mgr.require_approval(
                 window_id, "hermes_send_message",
                 {"message": message[:50], "session_idx": session_idx},
@@ -285,7 +302,7 @@ class HermesConnectorPlugin(Star):
             # 智能审批：AstrBot 判断风险，低风险自动放行
             risk = classify_risk(message)
             if risk == "high":
-                window_id = event.unified_msg_origin
+                window_id = _safe_window_id(event)
                 risk_summary = get_risk_summary(message)
                 approved, reason = await self.pending_mgr.require_approval(
                     window_id, "hermes_send_message",
@@ -307,7 +324,7 @@ class HermesConnectorPlugin(Star):
         yolo_mode = self.config.get("hermes_approval_mode", "normal") == "yolo"
         try:
             result = await chat(message, session_id=session["id"], timeout=120, yolo=yolo_mode)
-            self.state_mgr.set_current_session(event.unified_msg_origin, result["session_id"], session_idx)
+            _safe_set_session(self.state_mgr, event, result["session_id"], session_idx)
             
             # 自动汇报摘要
             response = result["response"]
@@ -330,7 +347,7 @@ class HermesConnectorPlugin(Star):
         # 智能审批：创建会话属于中风险（消耗配额），smart 模式下也需要审批
         approval_mode = self.config.get("require_approval", "smart")
         if approval_mode in ("all", "smart"):
-            window_id = event.unified_msg_origin
+            window_id = _safe_window_id(event)
             risk = classify_risk(prompt)
             if approval_mode == "all" or risk == "high":
                 risk_summary = get_risk_summary(prompt) if risk == "high" else "🟡 创建新会话"
@@ -347,7 +364,7 @@ class HermesConnectorPlugin(Star):
         yolo_mode = self.config.get("hermes_approval_mode", "normal") == "yolo"
         try:
             result = await chat(prompt, timeout=120, yolo=yolo_mode)
-            self.state_mgr.set_current_session(event.unified_msg_origin, result["session_id"])
+            _safe_set_session(self.state_mgr, event, result["session_id"])
             await self._refresh_sessions()
             
             # 自动汇报摘要
@@ -385,7 +402,7 @@ class HermesConnectorPlugin(Star):
                 return
             idx = None
         
-        self.state_mgr.set_current_session(event.unified_msg_origin, session["id"], idx)
+        _safe_set_session(self.state_mgr, event, session["id"], idx)
         preview = session.get("preview") or "无预览"
         title = session.get("title") or "未命名"
         yield f"已切换到会话 [{session['id'][:12]}...] {title} - {preview}"
