@@ -13,6 +13,7 @@ from .hermes_cli_client import chat, list_sessions, check_health, HermesCliError
 from .command_handlers import CommandHandlers
 from .state_manager import StateManager
 from .notification_manager import NotificationManager
+from .pending_manager import PendingManager
 from . import formatters
 
 
@@ -26,6 +27,7 @@ class HermesConnectorPlugin(Star):
         self.config = config
         
         self.state_mgr = StateManager()
+        self.pending_mgr = PendingManager()
         self.notification_mgr = NotificationManager(context, self.state_mgr)
         self.cmd_handlers = CommandHandlers(self)
         self.quick_prefix = self.config.get("quick_prefix", ">")
@@ -131,6 +133,28 @@ class HermesConnectorPlugin(Star):
     async def cmd_abort(self, event: AstrMessageEvent, session: str = ""):
         await self.cmd_handlers.cmd_abort(event, session or None)
     
+    # ── 审批指令 ─────────────────────────────────────
+    
+    @hermes.command("pending", alias={"p"})
+    async def cmd_pending(self, event: AstrMessageEvent):
+        """查看待审批请求"""
+        await self.cmd_handlers.cmd_pending(event, None)
+    
+    @hermes.command("approve", alias={"a"})
+    async def cmd_approve(self, event: AstrMessageEvent, index: str = ""):
+        """批准待审批请求。不加序号则全部批准。"""
+        await self.cmd_handlers.cmd_approve(event, index or None)
+    
+    @hermes.command("allow")
+    async def cmd_allow(self, event: AstrMessageEvent, index: str = ""):
+        """批准指定序号的请求"""
+        await self.cmd_handlers.cmd_approve(event, index or None)
+    
+    @hermes.command("deny", alias={"d", "reject"})
+    async def cmd_deny(self, event: AstrMessageEvent, index: str = ""):
+        """拒绝待审批请求。不加序号则全部拒绝。"""
+        await self.cmd_handlers.cmd_deny(event, index or None)
+    
     # ── 快捷前缀 ─────────────────────────────────────
     
     @filter.regex(r"^(\d+)?\s*(.+)$")
@@ -178,6 +202,23 @@ class HermesConnectorPlugin(Star):
             message(string): 要发送的消息内容
             session_idx(number): 会话序号（从 1 开始），使用 hermes_list_sessions 查看
         """
+        # 请求审批
+        window_id = event.get_sender_id()
+        approved, reason = await self.pending_mgr.require_approval(
+            window_id, "hermes_send_message",
+            {"message": message[:50], "session_idx": session_idx},
+            lambda text: event.send(MessageChain(chain=[Plain(text)])),
+            timeout=60
+        )
+        if not approved:
+            if reason == "timeout":
+                yield "操作超时：60秒内未收到用户审批。请使用 `/hermes a` 批准或 `/hermes deny` 拒绝。"
+            elif reason == "notification_failed":
+                yield "操作失败：无法发送审批通知。请检查插件配置。"
+            else:
+                yield "操作已被用户拒绝。"
+            return
+        
         await self._refresh_sessions()
         session = self.state_mgr.get_session_by_idx(session_idx)
         if not session:
@@ -198,6 +239,23 @@ class HermesConnectorPlugin(Star):
         Args:
             prompt(string): 会话的初始任务描述或提示词
         """
+        # 请求审批
+        window_id = event.get_sender_id()
+        approved, reason = await self.pending_mgr.require_approval(
+            window_id, "hermes_create_session",
+            {"prompt": prompt[:50]},
+            lambda text: event.send(MessageChain(chain=[Plain(text)])),
+            timeout=60
+        )
+        if not approved:
+            if reason == "timeout":
+                yield "操作超时：60秒内未收到用户审批。请使用 `/hermes a` 批准或 `/hermes deny` 拒绝。"
+            elif reason == "notification_failed":
+                yield "操作失败：无法发送审批通知。"
+            else:
+                yield "操作已被用户拒绝。"
+            return
+        
         try:
             result = await chat(prompt, timeout=120)
             self.state_mgr.set_current_session(event.get_sender_id(), result["session_id"])

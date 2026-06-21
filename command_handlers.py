@@ -379,3 +379,55 @@ class CommandHandlers:
     async def cmd_quick_send(self, event: AstrMessageEvent, text: str):
         """快捷发送（处理 > 前缀消息）"""
         await self.cmd_send(event, text)
+    
+    # ── 审批方法 ─────────────────────────────────────
+    
+    async def cmd_pending(self, event: AstrMessageEvent, arg: str | None = None):
+        """查看待审批请求"""
+        window_id = event.get_sender_id()
+        text = self.plugin.pending_mgr.get_summary(window_id)
+        await self.send_reply(event, text)
+    
+    async def cmd_approve(self, event: AstrMessageEvent, arg: str | None = None):
+        """批准待审批请求"""
+        window_id = event.get_sender_id()
+        
+        if arg:
+            # 批准单个
+            try:
+                index = int(arg.strip())
+                ok = await self.plugin.pending_mgr.approve_single(window_id, index)
+                if ok:
+                    await self.send_reply(event, f"✅ 已批准请求 #{index}")
+                else:
+                    await self.send_reply(event, f"⚠️ 找不到序号 {index} 的待审批请求")
+            except ValueError:
+                await self.send_reply(event, "⚠️ 请提供序号，如 `/hermes allow 1`")
+        else:
+            # 全部批准
+            result = await self.plugin.pending_mgr.approve_all(window_id)
+            if result:
+                await self.send_reply(event, result)
+            else:
+                await self.send_reply(event, "📭 没有待审批的请求")
+    
+    async def cmd_deny(self, event: AstrMessageEvent, arg: str | None = None):
+        """拒绝待审批请求"""
+        window_id = event.get_sender_id()
+        
+        if arg:
+            try:
+                index = int(arg.strip())
+                ok = await self.plugin.pending_mgr.deny_single(window_id, index)
+                if ok:
+                    await self.send_reply(event, f"❌ 已拒绝请求 #{index}")
+                else:
+                    await self.send_reply(event, f"⚠️ 找不到序号 {index} 的待审批请求")
+            except ValueError:
+                await self.send_reply(event, "⚠️ 请提供序号，如 `/hermes deny 1`")
+        else:
+            result = await self.plugin.pending_mgr.deny_all(window_id)
+            if result:
+                await self.send_reply(event, result)
+            else:
+                await self.send_reply(event, "📭 没有待审批的请求")

@@ -44,5 +44,17 @@
     "type": "string",
     "default": "",
     "hint": "留空则使用 Hermes 默认 persona"
+  },
+  "require_approval": {
+    "description": "LLM 工具操作是否需要审批确认",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，每次通过自然语言发送消息/创建会话需要用户确认"
+  },
+  "approval_timeout": {
+    "description": "审批超时时间（秒）",
+    "type": "int",
+    "default": 60,
+    "hint": "超过此时间未审批则自动拒绝"
   }
 }

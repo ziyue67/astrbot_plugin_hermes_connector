@@ -134,7 +134,15 @@ def format_help() -> str:
 • `/hermes create <提示词>` — 创建新会话
 • `/hermes create <提示词> --model <模型>` — 指定模型创建
 
+**审批操作:**
+• `/hermes pending` (`/hermes p`) — 查看待审批请求
+• `/hermes a` — 批准全部待审批
+• `/hermes allow <序号>` — 批准指定序号
+• `/hermes deny [序号]` — 拒绝（全部/指定）
+
 **其他:**
 • `/hermes health` — 检查 Hermes 连接状态
+• `/hermes files <路径>` — 浏览文件
+• `/hermes abort` — 中断当前会话
 • `/hermes help` — 显示此帮助
 """
