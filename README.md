@@ -82,7 +82,7 @@ _✨ 在 QQ/微信/Telegram 上远程操控 Hermes Agent ✨_
 | `quick_prefix` | 快捷发送前缀 | `>` |
 | `output_mode` | 输出模式：`simple` / `verbose` | `simple` |
 | `auto_create_session` | 快捷发送时自动创建新会话 | `true` |
-| `require_approval` | LLM 工具操作需审批确认 | `true` |
+| `require_approval` | LLM 工具操作审批模式：`all`=每次审批, `smart`=智能审批(低风险自动放行), `off`=关闭 | `smart` |
 | `poke_approve` | 戳一戳机器人自动审批（仅 QQ NapCat） | `true` |
 | `approval_timeout` | 审批超时时间（秒） | `60` |
 | `hermes_approval_mode` | Hermes CLI 审批模式。`normal`=默认需确认，`yolo`=跳过危险操作确认 | `normal` |
@@ -208,3 +208,31 @@ MIT
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent) — Nous Research 开源 AI Agent 框架
 - [AstrBot](https://github.com/Soulter/AstrBot) — 跨平台聊天机器人框架
 - [HAPI Vibe Coding 遥控器](https://github.com/LiJinHao999/astrbot_plugin_hapi_connector) — 本插件的设计参考
+
+---
+
+## 📋 更新日志
+
+### v1.2.0
+
+**核心 Bug 修复（7 项）**
+
+- **修复新建会话后无法继续对话的致命 Bug**：Hermes CLI `--quiet` 模式下 `session_id` 输出在 stderr 而非 stdout，导致解析失败、session_id 始终为 `unknown`，后续所有操作报 `Session not found`
+- **修复 LLM 工具全面崩溃的致命 Bug**：AstrBot v4.26+ 的 `_PermissionGuardedTool` 将 LLM 工具参数从 `AstrMessageEvent` 替换为 `ContextWrapper`，导致 `event.unified_msg_origin` 和 `event.send()` 全部报 `AttributeError`。新增 `_safe_event()` 兼容层自动提取真实 event
+- **修复会话消息/详情获取失败**：`hermes sessions export` 命令用法错误，把 session_id 当文件路径。改为正确使用 `--session-id <id> -` 导出到 stdout
+- **修复指令与 LLM 工具状态不互通**：指令处理器用 `get_sender_id()`，LLM 工具用 `unified_msg_origin`，统一为 `unified_msg_origin`
+- **修复 `/hermes rename` 指令空操作**：之前只返回"不支持"提示，现在真正调用 `hermes sessions rename`
+- **修复 `/hermes list` 重复注册冲突**：两个方法同时注册 `@hermes.command("list")`
+- **修复 LLM 工具忽略 workdir/model 配置**：`tool_send_message`、`tool_create_session`、`tool_abort_session` 调用 `chat()` 时未传递配置参数
+
+### v1.1.0
+
+- 新增智能审批系统（风险分级：高/中/低）
+- 新增戳一戳审批（QQ NapCat）
+- 新增会话删除/批量清理/重命名指令及 LLM 工具
+- 新增 `auto_report` 自动汇报摘要
+- 新增 `hermes_approval_mode` 配置（normal/yolo）
+
+### v1.0.0
+
+- 初始版本：远程会话管理、消息发送、文件浏览、LLM 工具集成
