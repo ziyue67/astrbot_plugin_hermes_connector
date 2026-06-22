@@ -82,5 +82,29 @@
     "default": "normal",
     "options": ["normal", "yolo"],
     "hint": "yolo 模式会自动批准 Hermes 侧的敏感操作（文件写入、命令执行等），请谨慎使用"
+  },
+  "progress_monitor": {
+    "description": "后台进度监控：Hermes 任务执行时自动轮询并汇报进度",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，发送消息给 Hermes 后立即返回，后台轮询进度并定期推送 LLM 生成的总结"
+  },
+  "progress_poll_interval": {
+    "description": "进度轮询间隔（秒）",
+    "type": "int",
+    "default": 30,
+    "hint": "每隔多少秒轮询一次 Hermes 会话状态"
+  },
+  "progress_token_threshold": {
+    "description": "Token 阈值汇报间隔（每消耗多少 token 汇报一次）",
+    "type": "int",
+    "default": 100000,
+    "hint": "每消耗 N token 触发一次 LLM 总结汇报。例如 100000 = 每 10 万 token 汇报一次"
+  },
+  "progress_idle_heartbeat": {
+    "description": "空闲心跳间隔（秒）。连续无新消息超过此时间推送心跳",
+    "type": "int",
+    "default": 120,
+    "hint": "如果 Hermes 持续无新消息超过此秒数，推送一次心跳提醒"
   }
 }

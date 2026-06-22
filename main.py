@@ -4,6 +4,8 @@ Hermes Connector AstrBot 插件入口
 - @filter.llm_tool() 用在插件类方法上，支持自然语言触发
 """
 
+import asyncio
+
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, register
 from astrbot.api import AstrBotConfig, logger
@@ -17,6 +19,7 @@ from .pending_manager import PendingManager
 from .risk_checker import classify_risk, get_risk_summary
 from . import file_ops
 from . import formatters
+from .progress_monitor import ProgressMonitor
 
 
 def _approval_failed_msg(reason: str) -> str:
@@ -68,7 +71,7 @@ def _safe_set_session(state_mgr, event, session_id, idx=None):
 
 @register("astrbot_plugin_hermes_connector", "konodiodaaaaa1",
           "连接 Hermes Agent，在聊天平台上远程操控 Hermes 会话，随时随地 Agent",
-          "1.2.0")
+          "1.2.5")
 class HermesConnectorPlugin(Star):
     
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -81,6 +84,7 @@ class HermesConnectorPlugin(Star):
         self.cmd_handlers = CommandHandlers(self)
         self.quick_prefix = self.config.get("quick_prefix", ">")
         self.poke_approve = self.config.get("poke_approve", True)
+        self.progress_monitor = ProgressMonitor(context, config)
         
         logger.info(f"Hermes Connector 已加载。快捷前缀: '{self.quick_prefix}'")
     
@@ -105,7 +109,7 @@ class HermesConnectorPlugin(Star):
         logger.info("Hermes Connector 启动完成")
     
     async def terminate(self):
-        pass
+        self.progress_monitor.stop_all()
     
     # ── 辅助 ─────────────────────────────────────────
     
@@ -346,27 +350,99 @@ class HermesConnectorPlugin(Star):
             return
         
         yolo_mode = self.config.get("hermes_approval_mode", "normal") == "yolo"
+        sid = session["id"]
+
+        # 非阻塞模式：后台发送 + 进度监控
+        if self.progress_monitor.enabled:
+            # 立即返回，后台执行
+            asyncio.create_task(
+                self._background_chat(event, message, sid, session_idx)
+            )
+            yield f"✅ 已提交到 Hermes 会话 [{sid[:16]}...]，后台执行中。我会在有进展时通知你。"
+            return
+
+        # 阻塞模式（fallback）
         try:
             result = await chat(
-                message, session_id=session["id"],
+                message, session_id=sid,
                 workdir=self.config.get("hermes_workdir", "") or None,
                 model=self.config.get("hermes_model", "") or None,
                 timeout=120, yolo=yolo_mode,
                 binary=self.config.get("hermes_command", "hermes"),
             )
             _safe_set_session(self.state_mgr, event, result["session_id"], session_idx)
-            
+
             # 自动汇报摘要
             response = result["response"]
             if self.config.get("auto_report", True):
                 max_len = self.config.get("auto_report_max_length", 500)
                 if len(response) > max_len:
                     response = response[:max_len] + f"\n\n...（回复过长，截断至 {max_len} 字符。可用 /hermes msg 查看完整消息）"
-            
+
             yield formatters.format_response(result["session_id"], response)
         except HermesCliError as e:
             yield str(e)
-    
+
+    async def _background_chat(self, event, message: str, session_id: str, session_idx: int = 1):
+        """后台发送消息给 Hermes + 启动进度监控"""
+        yolo_mode = self.config.get("hermes_approval_mode", "normal") == "yolo"
+        binary = self.config.get("hermes_command", "hermes")
+
+        # 启动进度监控
+        monitor_task = self.progress_monitor.start_monitoring(session_id, event)
+
+        try:
+            # 后台执行 hermes chat（长时间阻塞，但不影响主线程）
+            result = await chat(
+                message, session_id=session_id,
+                workdir=self.config.get("hermes_workdir", "") or None,
+                model=self.config.get("hermes_model", "") or None,
+                timeout=300, yolo=yolo_mode,
+                binary=binary,
+            )
+            _safe_set_session(self.state_mgr, event, result["session_id"], session_idx)
+
+            # 推送最终结果
+            response = result["response"]
+            max_len = self.config.get("auto_report_max_length", 1000)
+            if len(response) > max_len:
+                response = response[:max_len] + f"\n\n...（截断至 {max_len} 字符）"
+
+            # 如果监控任务还在跑，先停掉（避免重复完成通知）
+            self.progress_monitor.stop_monitoring(session_id)
+
+            final_text = (
+                f"✅ **Hermes 任务完成**\n"
+                f"会话: {result['session_id'][:16]}...\n\n"
+                f"{response}"
+            )
+            await self._push_to_user(event, final_text)
+
+        except HermesCliError as e:
+            self.progress_monitor.stop_monitoring(session_id)
+            await self._push_to_user(event, f"❌ Hermes 执行失败: {str(e)[:300]}")
+        except asyncio.CancelledError:
+            self.progress_monitor.stop_monitoring(session_id)
+        except Exception as e:
+            self.progress_monitor.stop_monitoring(session_id)
+            logger.warning(f"后台 chat 异常: {e}")
+
+    async def _push_to_user(self, event, text: str):
+        """通过缓存的 platform + session 推送消息给用户"""
+        real_event = _safe_event(event)
+        umo = real_event.unified_msg_origin
+        platform_id = real_event.get_platform_id()
+        session = real_event.session
+
+        try:
+            platform = self.context.get_platform_inst(platform_id)
+            if platform:
+                await platform.send_by_session(session, MessageChain(chain=[Plain(text)]))
+            else:
+                logger.warning(f"推送失败：找不到平台 {platform_id}")
+        except Exception as e:
+            logger.warning(f"推送消息失败: {e}")
+
     @filter.llm_tool(name="hermes_create_session")
     async def tool_create_session(self, event, prompt: str):
         """创建一个新的 Hermes Agent 会话，用于执行指定的任务。
@@ -392,6 +468,30 @@ class HermesConnectorPlugin(Star):
                     return
         
         yolo_mode = self.config.get("hermes_approval_mode", "normal") == "yolo"
+
+        # 非阻塞模式：后台发送 + 进度监控
+        if self.progress_monitor.enabled:
+            # 先快速创建会话（不带消息内容），获取 session_id
+            try:
+                result = await chat(
+                    prompt,
+                    workdir=self.config.get("hermes_workdir", "") or None,
+                    model=self.config.get("hermes_model", "") or None,
+                    timeout=30, yolo=yolo_mode,
+                    binary=self.config.get("hermes_command", "hermes"),
+                )
+                sid = result["session_id"]
+                _safe_set_session(self.state_mgr, event, sid)
+                await self._refresh_sessions()
+
+                # 启动后台监控（会话可能还在 Hermes 侧继续生成）
+                self.progress_monitor.start_monitoring(sid, event)
+                yield f"🆕 已创建 Hermes 会话 [{sid[:16]}...]，后台执行中。有进展时会通知你。"
+            except HermesCliError as e:
+                yield str(e)
+            return
+
+        # 阻塞模式（fallback）
         try:
             result = await chat(
                 prompt,
@@ -402,14 +502,14 @@ class HermesConnectorPlugin(Star):
             )
             _safe_set_session(self.state_mgr, event, result["session_id"])
             await self._refresh_sessions()
-            
+
             # 自动汇报摘要
             response = result["response"]
             if self.config.get("auto_report", True):
                 max_len = self.config.get("auto_report_max_length", 500)
                 if len(response) > max_len:
                     response = response[:max_len] + f"\n\n...（回复过长，截断至 {max_len} 字符。可用 /hermes msg 查看完整消息）"
-            
+
             yield formatters.format_response(result["session_id"], response, is_new=True)
         except HermesCliError as e:
             yield str(e)

@@ -86,6 +86,10 @@ _✨ 在 QQ/微信/Telegram 上远程操控 Hermes Agent ✨_
 | `poke_approve` | 戳一戳机器人自动审批（仅 QQ NapCat） | `true` |
 | `approval_timeout` | 审批超时时间（秒） | `60` |
 | `hermes_approval_mode` | Hermes CLI 审批模式。`normal`=默认需确认，`yolo`=跳过危险操作确认 | `normal` |
+| `progress_monitor` | 后台进度监控：Hermes 任务执行时自动轮询并汇报 | `true` |
+| `progress_poll_interval` | 进度轮询间隔（秒） | `30` |
+| `progress_token_threshold` | Token 阈值汇报间隔（每消耗多少 token 汇报一次） | `100000` |
+| `progress_idle_heartbeat` | 空闲心跳间隔（秒）| `120` |
 | `default_system_prompt` | 新会话默认系统提示词 | 空（使用 Hermes 默认） |
 
 ### Hermes 审批模式说明
@@ -212,6 +216,21 @@ MIT
 ---
 
 ## 📋 更新日志
+
+### v1.2.5
+
+**新功能：后台进度监控**
+
+- 新增非阻塞发送模式：`hermes_send_message` 和 `hermes_create_session` 发送后立即返回，Hermes 在后台执行，不阻塞 AstrBot 的其他对话
+- 新增后台轮询监控：每 30s 轮询 Hermes 会话状态（token 用量、消息数、工具调用数）
+- 新增 LLM 总结汇报：每消耗 10 万 token 时，截取 Hermes 最近活动片段，调用 AstrBot 的 LLM 生成 2-3 句自然语言进度总结，推送到聊天窗口
+- 新增空闲心跳：Hermes 持续无新消息超过阈值时间时推送心跳提醒
+- 新增任务完成通知：检测到会话结束时自动推送最终结果
+- 新增配置项：`progress_monitor` / `progress_poll_interval` / `progress_token_threshold` / `progress_idle_heartbeat`
+
+**Bug 修复**
+
+- 修复 `main.py` 缺少 `import asyncio` 导致 `asyncio.create_task` 报错
 
 ### v1.2.0
 
