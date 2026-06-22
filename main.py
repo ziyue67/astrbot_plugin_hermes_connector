@@ -31,8 +31,30 @@ def _approval_failed_msg(reason: str) -> str:
 
 
 def _safe_window_id(event) -> str:
-    """从 event 安全获取窗口ID。"""
-    return event.unified_msg_origin
+    """从 event 安全获取窗口ID。
+
+    指令处理器传入的是 AstrMessageEvent;
+    LLM 工具在 AstrBot v4.26+ 中传入的是 ContextWrapper，
+    需要通过 .context.event 提取实际的 AstrMessageEvent。
+    """
+    real_event = _safe_event(event)
+    if hasattr(real_event, 'unified_msg_origin'):
+        return real_event.unified_msg_origin
+    return "internal_agent"
+
+
+def _safe_event(event):
+    """从 event 提取真正的 AstrMessageEvent。
+
+    AstrBot v4.26+ 的 _PermissionGuardedTool 会将 LLM 工具的第一个参数
+    从 AstrMessageEvent 替换为 ContextWrapper[AstrAgentContext]。
+    ContextWrapper 的结构: .context.event → AstrMessageEvent
+    """
+    if hasattr(event, 'unified_msg_origin'):
+        return event
+    if hasattr(event, 'context') and hasattr(event.context, 'event'):
+        return event.context.event
+    return event
 
 
 def _safe_set_session(state_mgr, event, session_id, idx=None):
@@ -294,7 +316,7 @@ class HermesConnectorPlugin(Star):
             approved, reason = await self.pending_mgr.require_approval(
                 window_id, "hermes_send_message",
                 {"message": message[:50], "session_idx": session_idx},
-                lambda text: event.send(MessageChain(chain=[Plain(text)])),
+                lambda text: _safe_event(event).send(MessageChain(chain=[Plain(text)])),
                 timeout=self.config.get("approval_timeout", 60)
             )
             if not approved:
@@ -309,7 +331,7 @@ class HermesConnectorPlugin(Star):
                 approved, reason = await self.pending_mgr.require_approval(
                     window_id, "hermes_send_message",
                     {"risk": risk_summary, "message": message[:50], "session_idx": session_idx},
-                    lambda text: event.send(MessageChain(chain=[Plain(text)])),
+                    lambda text: _safe_event(event).send(MessageChain(chain=[Plain(text)])),
                     timeout=self.config.get("approval_timeout", 60)
                 )
                 if not approved:
@@ -362,7 +384,7 @@ class HermesConnectorPlugin(Star):
                 approved, reason = await self.pending_mgr.require_approval(
                     window_id, "hermes_create_session",
                     {"risk": risk_summary, "prompt": prompt[:50]},
-                    lambda text: event.send(MessageChain(chain=[Plain(text)])),
+                    lambda text: _safe_event(event).send(MessageChain(chain=[Plain(text)])),
                     timeout=self.config.get("approval_timeout", 60)
                 )
                 if not approved:
