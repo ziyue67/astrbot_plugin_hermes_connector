@@ -384,31 +384,54 @@ class HermesConnectorPlugin(Star):
             yield str(e)
 
     async def _background_chat(self, event, message: str, session_id: str, session_idx: int = 1):
-        """后台发送消息给 Hermes + 启动进度监控"""
+        """后台发送消息给 Hermes + 启动进度监控
+
+        使用 --quiet 模式启动 subprocess，等待自然结束（超时 30 分钟）。
+        进度监控在并行轮询，subprocess 完成后从 session export 提取最终回复。
+        """
         yolo_mode = self.config.get("hermes_approval_mode", "normal") == "yolo"
         binary = self.config.get("hermes_command", "hermes")
+        max_timeout = self.config.get("max_timeout", 120)
 
         # 启动进度监控
         monitor_task = self.progress_monitor.start_monitoring(session_id, event)
 
         try:
-            # 后台执行 hermes chat（长时间阻塞，但不影响主线程）
+            # 后台执行 hermes chat，给予充足超时（最长 30 分钟）
             result = await chat(
                 message, session_id=session_id,
                 workdir=self.config.get("hermes_workdir", "") or None,
                 model=self.config.get("hermes_model", "") or None,
-                timeout=300, yolo=yolo_mode,
+                timeout=1800, yolo=yolo_mode,
                 binary=binary,
             )
             _safe_set_session(self.state_mgr, event, result["session_id"], session_idx)
 
-            # 推送最终结果
+            # 提取最终回复
             response = result["response"]
+            if not response or response == "(无输出)":
+                # subprocess 超时或无输出，从 session 提取最后的 assistant 回复
+                from .hermes_cli_client import get_session_messages
+                messages = await get_session_messages(
+                    result["session_id"], timeout=30, binary=binary
+                )
+                if messages:
+                    for msg in reversed(messages):
+                        if msg.get("role") == "assistant":
+                            content = msg.get("content", "")
+                            if isinstance(content, list):
+                                content = " ".join([
+                                    c.get("text", "") for c in content
+                                    if isinstance(c, dict)
+                                ])
+                            response = str(content) or "(无回复)"
+                            break
+
             max_len = self.config.get("auto_report_max_length", 1000)
             if len(response) > max_len:
                 response = response[:max_len] + f"\n\n...（截断至 {max_len} 字符）"
 
-            # 如果监控任务还在跑，先停掉（避免重复完成通知）
+            # 停止监控（避免重复完成通知）
             self.progress_monitor.stop_monitoring(session_id)
 
             final_text = (
@@ -420,12 +443,85 @@ class HermesConnectorPlugin(Star):
 
         except HermesCliError as e:
             self.progress_monitor.stop_monitoring(session_id)
-            await self._push_to_user(event, f"❌ Hermes 执行失败: {str(e)[:300]}")
+            # 超时也可能是任务还在 Hermes 后端跑，检查 session 是否有新回复
+            err_str = str(e)
+            if "超时" in err_str:
+                await self._push_to_user(
+                    event,
+                    f"⏱️ Hermes 子进程超时，但会话可能仍在后端运行。\n"
+                    f"会话: {session_id[:16]}...\n"
+                    f"可用 `/hermes msg` 查看进度，或 `/hermes send 继续刚才的任务` 追问。"
+                )
+            else:
+                await self._push_to_user(event, f"❌ Hermes 执行失败: {err_str[:300]}")
         except asyncio.CancelledError:
             self.progress_monitor.stop_monitoring(session_id)
         except Exception as e:
             self.progress_monitor.stop_monitoring(session_id)
             logger.warning(f"后台 chat 异常: {e}")
+
+    async def _background_create(self, event, prompt: str):
+        """后台创建新 Hermes 会话 + 进度监控"""
+        yolo_mode = self.config.get("hermes_approval_mode", "normal") == "yolo"
+        binary = self.config.get("hermes_command", "hermes")
+
+        try:
+            # 创建新会话（session_id=None），给予充足超时
+            result = await chat(
+                prompt,
+                workdir=self.config.get("hermes_workdir", "") or None,
+                model=self.config.get("hermes_model", "") or None,
+                timeout=1800, yolo=yolo_mode,
+                binary=binary,
+            )
+            sid = result["session_id"]
+            _safe_set_session(self.state_mgr, event, sid)
+            await self._refresh_sessions()
+
+            # 提取最终回复
+            response = result["response"]
+            if not response or response == "(无输出)":
+                from .hermes_cli_client import get_session_messages
+                messages = await get_session_messages(sid, timeout=30, binary=binary)
+                if messages:
+                    for msg in reversed(messages):
+                        if msg.get("role") == "assistant":
+                            content = msg.get("content", "")
+                            if isinstance(content, list):
+                                content = " ".join([
+                                    c.get("text", "") for c in content
+                                    if isinstance(c, dict)
+                                ])
+                            response = str(content) or "(无回复)"
+                            break
+
+            max_len = self.config.get("auto_report_max_length", 1000)
+            if len(response) > max_len:
+                response = response[:max_len] + f"\n\n...（截断至 {max_len} 字符）"
+
+            self.progress_monitor.stop_monitoring(sid)
+
+            final_text = (
+                f"🆕 **Hermes 新会话已创建**\n"
+                f"会话: {sid[:16]}...\n\n"
+                f"{response}"
+            )
+            await self._push_to_user(event, final_text)
+
+        except HermesCliError as e:
+            err_str = str(e)
+            if "超时" in err_str:
+                await self._push_to_user(
+                    event,
+                    f"⏱️ Hermes 创建会话超时，但可能仍在后端运行。\n"
+                    f"可用 `/hermes list` 查看是否已创建。"
+                )
+            else:
+                await self._push_to_user(event, f"❌ Hermes 创建失败: {err_str[:300]}")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"后台 create 异常: {e}")
 
     async def _push_to_user(self, event, text: str):
         """通过缓存的 platform + session 推送消息给用户"""
@@ -471,24 +567,12 @@ class HermesConnectorPlugin(Star):
 
         # 非阻塞模式：后台发送 + 进度监控
         if self.progress_monitor.enabled:
-            # 先快速创建会话（不带消息内容），获取 session_id
-            try:
-                result = await chat(
-                    prompt,
-                    workdir=self.config.get("hermes_workdir", "") or None,
-                    model=self.config.get("hermes_model", "") or None,
-                    timeout=30, yolo=yolo_mode,
-                    binary=self.config.get("hermes_command", "hermes"),
-                )
-                sid = result["session_id"]
-                _safe_set_session(self.state_mgr, event, sid)
-                await self._refresh_sessions()
-
-                # 启动后台监控（会话可能还在 Hermes 侧继续生成）
-                self.progress_monitor.start_monitoring(sid, event)
-                yield f"🆕 已创建 Hermes 会话 [{sid[:16]}...]，后台执行中。有进展时会通知你。"
-            except HermesCliError as e:
-                yield str(e)
+            # 用 _background_chat 统一处理：后台执行 + 监控 + 完成后推送
+            # 创建新会话时 session_id=None，_background_chat 会通过 chat() 获取新 sid
+            asyncio.create_task(
+                self._background_create(event, prompt)
+            )
+            yield f"⏳ 正在创建 Hermes 新会话...后台执行中，有进展时会通知你。"
             return
 
         # 阻塞模式（fallback）
