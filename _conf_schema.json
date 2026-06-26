@@ -1,0 +1,164 @@
+{
+  "remote_mode": {
+    "description": "运行模式：local（本地 CLI） / hub（远程 Hermes Hub）",
+    "type": "string",
+    "default": "local",
+    "options": [
+      "local",
+      "hub"
+    ]
+  },
+  "hub_endpoint": {
+    "description": "Hermes Hub 访问地址，例如 https://hermes-hub.example.com",
+    "type": "string",
+    "default": ""
+  },
+  "access_token": {
+    "description": "Hermes Hub 的 Access Token",
+    "type": "string",
+    "default": ""
+  },
+  "hub_timeout": {
+    "description": "Hub 请求超时时间（秒）",
+    "type": "int",
+    "default": 120
+  },
+  "cf_access_client_id": {
+    "description": "Cloudflare Zero Trust Access Client ID（可选）",
+    "type": "string",
+    "default": ""
+  },
+  "cf_access_client_secret": {
+    "description": "Cloudflare Zero Trust Access Client Secret（可选）",
+    "type": "string",
+    "default": ""
+  },
+  "hermes_command": {
+    "description": "本地模式下 Hermes CLI 命令路径",
+    "type": "string",
+    "default": "hermes",
+    "hint": "例如: hermes 或 /usr/local/bin/hermes"
+  },
+  "hermes_workdir": {
+    "description": "Hermes 工作目录",
+    "type": "string",
+    "default": "",
+    "hint": "留空则使用 Hermes 默认工作目录。例如: D:/AI/workspace"
+  },
+  "hermes_model": {
+    "description": "创建新会话时使用的默认模型",
+    "type": "string",
+    "default": "",
+    "hint": "留空则使用 Hermes 默认模型。例如: deepseek/deepseek-v4-flash"
+  },
+  "max_timeout": {
+    "description": "Hermes 命令最大超时时间（秒）",
+    "type": "int",
+    "default": 120
+  },
+  "quick_prefix": {
+    "description": "快捷发送前缀",
+    "type": "string",
+    "default": ">",
+    "hint": "前缀后需加空格，如「> 消息内容」发送到当前会话"
+  },
+  "output_mode": {
+    "description": "输出模式：simple（只返回最终回复） / verbose（包含中间思考）",
+    "type": "string",
+    "default": "simple",
+    "options": [
+      "simple",
+      "verbose"
+    ]
+  },
+  "auto_create_session": {
+    "description": "收到快捷前缀消息时，如果没有当前会话则自动创建新会话",
+    "type": "bool",
+    "default": true
+  },
+  "default_system_prompt": {
+    "description": "创建新会话时的默认系统提示词（覆盖 Hermes 内置 persona）",
+    "type": "string",
+    "default": "",
+    "hint": "留空则使用 Hermes 默认 persona"
+  },
+  "require_approval": {
+    "description": "审批模式。all=每次都需要审批, smart=智能审批(低风险自动放行), off=不审批",
+    "type": "string",
+    "default": "smart",
+    "options": [
+      "all",
+      "smart",
+      "off"
+    ],
+    "hint": "smart 模式：读取/搜索等低风险操作自动放行，删除/覆盖等高风险操作需要确认"
+  },
+  "poke_approve": {
+    "description": "戳一戳机器人自动审批全部待审批请求（仅 QQ NapCat）",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后在 QQ 戳一戳机器人自动批准所有待审批请求"
+  },
+  "approval_timeout": {
+    "description": "审批超时时间（秒）",
+    "type": "int",
+    "default": 60,
+    "hint": "超过此时间未审批则自动拒绝"
+  },
+  "auto_report": {
+    "description": "任务完成后自动汇报简短摘要",
+    "type": "bool",
+    "default": true,
+    "hint": "Hermes 执行完后自动总结做了什么，而不是只返回原始回复"
+  },
+  "auto_report_max_length": {
+    "description": "汇报摘要最大长度（字符数）",
+    "type": "int",
+    "default": 500,
+    "hint": "自动汇报时截断过长回复"
+  },
+  "hermes_approval_mode": {
+    "description": "Hermes CLI 审批模式。yolo=跳过所有危险命令确认，normal=默认（需确认），plan=规划模式（不执行）",
+    "type": "string",
+    "default": "normal",
+    "options": [
+      "normal",
+      "yolo"
+    ],
+    "hint": "yolo 模式会自动批准 Hermes 侧的敏感操作（文件写入、命令执行等），请谨慎使用"
+  },
+  "progress_monitor": {
+    "description": "后台进度监控：Hermes 任务执行时自动轮询并汇报进度",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，发送消息给 Hermes 后立即返回，后台轮询进度并定期推送 LLM 生成的总结"
+  },
+  "progress_poll_interval": {
+    "description": "进度轮询间隔（秒）",
+    "type": "int",
+    "default": 30,
+    "hint": "每隔多少秒轮询一次 Hermes 会话状态"
+  },
+  "progress_token_threshold": {
+    "description": "Token 阈值汇报间隔（每消耗多少 token 汇报一次）",
+    "type": "int",
+    "default": 100000,
+    "hint": "每消耗 N token 触发一次 LLM 总结汇报。例如 100000 = 每 10 万 token 汇报一次"
+  },
+  "progress_idle_heartbeat": {
+    "description": "空闲心跳间隔（秒）。连续无新消息超过此时间推送心跳",
+    "type": "int",
+    "default": 120,
+    "hint": "如果 Hermes 持续无新消息超过此秒数，推送一次心跳提醒"
+  },
+  "hub_verify_ssl": {
+    "description": "校验 Hermes Hub HTTPS 证书。使用自签名/IP 证书时请关闭",
+    "type": "bool",
+    "default": false
+  },
+  "https_port": {
+    "description": "Hermes Hub HTTPS 端口（仅远端部署参考，插件端使用 hub_endpoint 指定端口）",
+    "type": "int",
+    "default": 9443
+  }
+}
