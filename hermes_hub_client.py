@@ -85,14 +85,30 @@ class AsyncHermesHubClient:
             await self._connector.close()
             self._connector = None
 
-    async def request(self, method: str, path: str, *, retry_on_401: bool = True, **kwargs) -> aiohttp.ClientResponse:
+    async def request(self, method: str, path: str, *, retry_on_401: bool = True, retry_on_5xx: int = 1, **kwargs) -> aiohttp.ClientResponse:
         await self._ensure_session()
         url = f"{self._endpoint}{path}"
         headers = kwargs.pop("headers", {})
         headers.update(await self._auth_headers())
         timeout = kwargs.pop("timeout", aiohttp.ClientTimeout(total=self._timeout))
 
-        resp = await self._session.request(method, url, headers=headers, timeout=timeout, **kwargs)
+        last_exc = None
+        attempt = 0
+        max_attempts = max(1, retry_on_5xx + 1)
+        while attempt < max_attempts:
+            attempt += 1
+            try:
+                resp = await self._session.request(method, url, headers=headers, timeout=timeout, **kwargs)
+                break
+            except aiohttp.ClientConnectionError as e:
+                last_exc = e
+                if attempt < max_attempts:
+                    logger.warning(f"Hermes Hub 连接失败，第 {attempt} 次重试: {e}")
+                    await asyncio.sleep(1.0 * attempt)
+                    continue
+                raise last_exc from None
+        else:
+            raise last_exc from None
 
         if resp.status == 401 and retry_on_401:
             await resp.release()
@@ -138,7 +154,13 @@ class AsyncHermesHubClient:
             f"{self._endpoint}/health",
             timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
-            return await resp.json()
+            body = await resp.text()
+            if resp.status >= 400:
+                raise Exception(f"Hermes Hub health returned HTTP {resp.status}: {body[:200]}")
+            content_type = resp.headers.get("Content-Type", "")
+            if "application/json" not in content_type:
+                raise Exception(f"Hermes Hub health returned unexpected content ({content_type}): {body[:200]}")
+            return json.loads(body)
 
     # ---- Hermes 业务接口 ----
 
@@ -182,9 +204,13 @@ class AsyncHermesHubClient:
 
     async def delete_session(self, session_id: str) -> dict:
         resp = await self.delete(f"/api/sessions/{session_id}")
-        data = await resp.json()
+        body = await resp.text()
         resp.release()
-        return data
+        if resp.status >= 400:
+            raise Exception(f"Hermes Hub HTTP {resp.status}: {body[:200]}")
+        if not body.strip():
+            return {"ok": True}
+        return json.loads(body)
 
     async def prune_sessions(self, older_than: int = 90, source: str | None = None) -> dict:
         return await self.post_json("/api/sessions/prune", json={

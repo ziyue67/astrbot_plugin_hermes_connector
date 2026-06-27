@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     token = init_access_token()
     logger.info("Hermes Hub 启动")
     logger.info("使用 Hermes: binary=%s container=%s", HERMES_BINARY, HERMES_CONTAINER or "(本地)")
-    logger.info("Access Token: %s", token)
+    logger.info("Access Token initialized (length=%d, prefix=%s)", len(token) if token else 0, (token[:4] + "...") if token else "none")
     yield
     await sse_manager.shutdown()
 

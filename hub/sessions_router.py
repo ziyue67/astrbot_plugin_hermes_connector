@@ -115,7 +115,7 @@ async def send_message(
 @router.post("/sessions/{session_id}/stop")
 async def stop_session(session_id: str, token: dict = Depends(get_current_token)):
     code, stdout, stderr = await run_hermes(
-        ["chat", "-q", "/stop", "--resume", session_id], timeout=30
+        ["chat", "--resume", session_id, "-q", "/stop"], timeout=30
     )
     if code != 0:
         raise HTTPException(status_code=500, detail=stderr[:500] or stdout[:500])

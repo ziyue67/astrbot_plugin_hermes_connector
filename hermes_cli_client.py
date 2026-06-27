@@ -338,14 +338,16 @@ class HubHermesService(HermesService):
                                   binary: str | None = None) -> dict | None:
         try:
             return await self._client.get_session(session_id)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Hub get_session_detail failed: {e}")
             return None
 
     async def get_session_messages(self, session_id: str, timeout: int = 30,
                                     binary: str | None = None) -> list[dict]:
         try:
             return await self._client.get_messages(session_id)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Hub get_session_messages failed: {e}")
             return []
 
     async def delete_session(self, session_id: str, *, timeout: int = 15,
@@ -354,6 +356,7 @@ class HubHermesService(HermesService):
             await self._client.delete_session(session_id)
             return True, f"已删除会话 {session_id[:16]}..."
         except Exception as e:
+            logger.warning(f"Hub delete_session failed: {e}")
             return False, f"删除失败: {e}"
 
     async def prune_sessions(self, *, older_than: int = 90, source: str | None = None,
@@ -363,6 +366,7 @@ class HubHermesService(HermesService):
             data = await self._client.prune_sessions(older_than=older_than, source=source)
             return True, data.get("detail", f"已清理 {older_than} 天前的旧会话")
         except Exception as e:
+            logger.warning(f"Hub prune_sessions failed: {e}")
             return False, f"清理失败: {e}"
 
     async def rename_session_cmd(self, session_id: str, title: str, *,
@@ -371,6 +375,7 @@ class HubHermesService(HermesService):
             await self._client.rename_session(session_id, title)
             return True, f"已重命名会话 {session_id[:16]}... 为「{title}」"
         except Exception as e:
+            logger.warning(f"Hub rename_session failed: {e}")
             return False, f"重命名失败: {e}"
 
     async def switch_session(self, session_id: str, timeout: int = 15,
@@ -378,7 +383,8 @@ class HubHermesService(HermesService):
         try:
             await self._client.get_session(session_id)
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Hub switch_session failed: {e}")
             return False
 
     def get_event_stream(self, sse_timeout: int = 90):
