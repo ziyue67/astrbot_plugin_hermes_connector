@@ -1,5 +1,6 @@
 """Hermes Hub 会话管理路由。"""
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -11,6 +12,13 @@ from .sse_manager import sse_manager
 
 logger = logging.getLogger("hermes_hub")
 router = APIRouter(prefix="/api")
+
+SESSION_ID_RE = re.compile(r"^[0-9]{8}_[0-9]{6}_[0-9a-f]{6,}$")
+
+
+def _validate_session_id(session_id: str) -> None:
+    if not SESSION_ID_RE.match(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session id format")
 
 
 class CreateSessionBody(BaseModel):
@@ -163,6 +171,7 @@ async def prune_sessions(body: PruneBody, token: dict = Depends(get_current_toke
 
 
 async def _fetch_detail(session_id: str) -> dict:
+    _validate_session_id(session_id)
     code, stdout, stderr = await run_hermes(
         ["sessions", "export", "--session-id", session_id, "-"],
         timeout=30,

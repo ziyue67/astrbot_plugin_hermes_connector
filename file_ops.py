@@ -48,8 +48,11 @@ async def list_files(path: str = ".", session_id: str | None = None,
         )
         lines = [l.strip() for l in result["response"].split("\n") if l.strip()]
         return [l for l in lines if not l.startswith("total ") and "Permission denied" not in l]
+    except HermesCliError as e:
+        logger.warning(f"Hermes 列出文件失败: {e}")
+        return []
     except Exception as e:
-        logger.warning(f"列出文件失败: {e}")
+        logger.warning(f"列出文件时发生意外错误: {e}")
         return []
 
 
@@ -82,8 +85,11 @@ async def search_files(keyword: str, path: str = ".",
         )
         lines = [l.strip() for l in result["response"].split("\n") if l.strip()]
         return lines
+    except HermesCliError as e:
+        logger.warning(f"Hermes 搜索文件失败: {e}")
+        return []
     except Exception as e:
-        logger.warning(f"搜索文件失败: {e}")
+        logger.warning(f"搜索文件时发生意外错误: {e}")
         return []
 
 
@@ -107,6 +113,9 @@ async def read_file_content(path: str, session_id: str | None = None,
             binary=binary,
         )
         return result["response"]
+    except HermesCliError as e:
+        logger.warning(f"Hermes 读取文件失败: {e}")
+        return None
     except Exception as e:
-        logger.warning(f"读取文件失败: {e}")
+        logger.warning(f"读取文件时发生意外错误: {e}")
         return None
