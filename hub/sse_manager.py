@@ -15,7 +15,7 @@ class SSEManager:
         self._queues: set[asyncio.Queue] = set()
 
     async def subscribe(self) -> AsyncGenerator[str, None]:
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=256)
         self._queues.add(queue)
         try:
             while True:
@@ -32,7 +32,11 @@ class SSEManager:
             try:
                 queue.put_nowait(ev)
             except asyncio.QueueFull:
-                pass
+                try:
+                    queue.get_nowait()
+                    queue.put_nowait(ev)
+                except Exception:
+                    pass
 
     async def shutdown(self):
         for queue in list(self._queues):

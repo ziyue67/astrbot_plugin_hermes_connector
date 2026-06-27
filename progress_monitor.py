@@ -216,10 +216,9 @@ class ProgressMonitor:
 
         try:
             umo = None
-            # 尝试获取 provider
-            for sid, target in self._push_targets.items():
+            target = self._push_targets.get(session_id)
+            if target:
                 umo = target.get("umo")
-                break
             provider = self.context.get_using_provider(umo)
             if provider is None:
                 # fallback: 硬编码模板
